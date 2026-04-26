@@ -1,10 +1,12 @@
 ### 一键安装脚本生成Cloudflare argo节点 
 
+> Fork of [gydchenxiao/Cloudflare-argo-tunnel-script](https://github.com/gydchenxiao/Cloudflare-argo-tunnel-script)，2026-04 全量重写。原仓库已两年未更新，此 fork 修复了历史命令注入、架构识别、tunnel UUID 解析等问题并适配 2026 环境。
+
 > 2026-04 重写：修复历史命令注入 / 架构识别错误 / `$argo` 未赋值 / tunnel UUID 解析错误等问题；新增 systemd 单元、端口占用探测、依赖自动安装、版本固定、ARM v6/v7 支持。详见 `argotunnel.sh` 顶部注释。
 
 #### 一键脚本
 ```
-curl -L https://raw.githubusercontent.com/gydchenxiao/Cloudflare-argo-tunnel-script/main/argotunnel.sh -o argotunnel.sh && bash argotunnel.sh
+curl -L https://raw.githubusercontent.com/buyi06/Cloudflare-argo-tunnel/main/argotunnel.sh -o argotunnel.sh && sudo bash argotunnel.sh
 ```
 
 > ⚠️ 出于安全考虑，建议先 `cat argotunnel.sh` 审阅再执行，而不是 `curl | bash`。
