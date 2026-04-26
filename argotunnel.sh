@@ -343,13 +343,25 @@ cf_login_if_needed() {
 
 tunnel_uuid_by_name() {
 	local name="$1"
-	"$CF_BIN" tunnel list --output json 2>>"$LOG_FILE" \
-		| jq -r --arg n "$name" '.[] | select(.name==$n and (.deleted_at==null or .deleted_at=="")) | .id' \
-		| head -n1
+	local raw
+	raw="$("$CF_BIN" tunnel list --output json 2>>"$LOG_FILE" || true)"
+	[ -z "$raw" ] && return 0
+	# 兼容 cloudflared 历史上出现过的几种顶层形状：裸数组 / { result: […] } / { tunnels: […] }
+	# 以及 deleted_at vs deletedAt 字段名
+	printf '%s' "$raw" | jq -r --arg n "$name" '
+		( if type=="array" then .
+		  elif (.result? // empty) then .result
+		  elif (.tunnels? // empty) then .tunnels
+		  else [] end )
+		| .[]
+		| select(.name==$n)
+		| select(((.deleted_at // .deletedAt // "") | tostring) == "")
+		| .id
+	' 2>>"$LOG_FILE" | head -n1
 }
 
 ensure_tunnel() {
-	local name="$1" uuid
+	local name="$1" uuid create_out
 	uuid="$(tunnel_uuid_by_name "$name" || true)"
 	if [ -n "$uuid" ]; then
 		if [ -f "${CF_CRED_DIR}/${uuid}.json" ]; then
@@ -362,8 +374,22 @@ ensure_tunnel() {
 		"$CF_BIN" tunnel delete -f "$name" >>"$LOG_FILE" 2>&1 || true
 	fi
 	log "创建 tunnel: $name"
-	"$CF_BIN" tunnel create "$name" >>"$LOG_FILE" 2>&1
-	uuid="$(tunnel_uuid_by_name "$name" || true)"
+	# 抓取创建输出同时写入日志。cloudflared 输出例:
+	#   Created tunnel <name> with id <UUID>
+	#   Tunnel credentials written to /root/.cloudflared/<UUID>.json.
+	create_out="$("$CF_BIN" tunnel create "$name" 2>&1)"
+	printf '%s\n' "$create_out" >>"$LOG_FILE"
+	uuid="$(printf '%s' "$create_out" \
+		| grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' \
+		| head -n1)"
+	# Fallback: 查 list 接口 (适配未来 CLI 输出改变)
+	[ -n "$uuid" ] || uuid="$(tunnel_uuid_by_name "$name" || true)"
+	# Fallback: 扫描刚生成的凭据 json (cloudflared 总在 cred dir 写 <UUID>.json)
+	if [ -z "$uuid" ]; then
+		uuid="$(find "$CF_CRED_DIR" -maxdepth 1 -name '*.json' -newer "$CF_CRED_DIR/cert.pem" -printf '%f\n' 2>/dev/null \
+			| sed -n 's/\.json$//p' \
+			| head -n1)"
+	fi
 	[ -n "$uuid" ] || die "创建 tunnel 失败, 详见 $LOG_FILE"
 	printf '%s' "$uuid"
 }
